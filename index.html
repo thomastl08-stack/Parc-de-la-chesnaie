@@ -270,5 +270,25 @@ Resources:`;for(const y of u){if(!y||typeof y!="string")throw new Error(`@supaba
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    // Filet de sécurité : si l'app plante avant même que React ne s'affiche,
+    // on montre l'erreur en clair à l'écran plutôt qu'un écran noir silencieux.
+    window.addEventListener("error", function (e) {
+      showBootError(e.error ? (e.error.stack || e.error.message) : e.message);
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      showBootError(e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : "Erreur inconnue");
+    });
+    function showBootError(msg) {
+      var root = document.getElementById("root");
+      if (root && root.innerHTML.trim() === "") {
+        root.innerHTML =
+          '<div style="background:#1e1b0e;color:#fde68a;padding:20px;font-family:monospace;' +
+          'font-size:13px;white-space:pre-wrap;min-height:100vh;box-sizing:border-box;">' +
+          '⚠️ Erreur au démarrage de l\'application :\n\n' + msg.replace(/</g, "&lt;") +
+          '</div>';
+      }
+    }
+  </script>
 </body>
 </html>
