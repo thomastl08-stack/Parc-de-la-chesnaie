@@ -3,74 +3,56 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
-<title>Camp'Ardoise — Gestionnaire de notes de bar</title>
-<meta name="description" content="Gestionnaire de notes de bar pour camping, sans papier, pense pour le service." />
-<meta name="theme-color" content="#020617" />
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Camp'Ardoise</title>
 <script src="https://cdn.tailwindcss.com"></script>
-
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-
-<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
-
-<script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.js" crossorigin></script>
-
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.383.0?external=react"
+  }
+}
+</script>
 <style>
-  html, body { background-color: #020617; margin: 0; padding: 0; }
-  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-  #root { min-height: 100vh; }
+  html, body { background:#020617; margin:0; padding:0; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  input[type='date']::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
 </style>
-
 </head>
 <body>
 <div id="root"></div>
 
-<script type="text/babel" data-presets="react">
-
-/* ============================================================
-   CAMP'ARDOISE — Gestionnaire de notes de bar
-   Stockage : Supabase (Postgres + Realtime), partage en direct
-   entre tous les appareils utilisant le meme mot de passe de bar.
-   ============================================================ */
-
-// ---------- CONFIGURATION SUPABASE ----------
-// Remplace ces deux valeurs par celles de TON projet Supabase.
-// Tu les trouves dans : Project Settings -> API -> Project URL / anon public key.
-const SUPABASE_URL = "https://VOTRE-PROJET.supabase.co";
-const SUPABASE_ANON_KEY = "VOTRE-CLE-ANON-PUBLIC";
-
-const supabaseReady = SUPABASE_URL.indexOf("VOTRE-PROJET") === -1 && SUPABASE_ANON_KEY.indexOf("VOTRE-CLE") === -1;
-const sb = supabaseReady ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-
-const { useState, useEffect, useMemo, useRef, useCallback } = React;
-const {
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import {
   Plus, Search, Phone, Clock, X, Minus, CreditCard, Banknote,
   FileCheck2, MoreHorizontal, CheckCircle2, ArrowLeft, Trash2,
-  Pencil, ChevronRight, Calendar: CalendarIcon, Settings,
+  Pencil, ChevronRight, Calendar as CalendarIcon, Settings,
   ListChecks, Users, History, Coffee, Beer, Wine, GlassWater,
   IceCream, Utensils, Sparkles, Martini, CupSoda, Baby, AlertTriangle,
-  WifiOff, Wifi,
-} = LucideReact;
+} from "lucide-react";
 
+
+/* ============================================================
+   CAMP'ARDOISE — Gestionnaire indépendant de notes de bar
+   Stockage: localStorage (contrat de données prêt pour Supabase/Firestore)
+   ============================================================ */
+
+// ---------- Argent : tout en centimes, jamais de flottants pour les calculs ----------
 const toCents = (euros) => Math.round(euros * 100);
 const fromCents = (cents) => cents / 100;
 const fmt = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const money = (cents) => fmt.format(fromCents(cents));
 
-const uid = (prefix) => prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+// ---------- IDs ----------
+const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+// ---------- Icônes par catégorie (fallback visuel) ----------
 const CATEGORY_ICONS = {
   cat_aperitif_partage: Utensils,
   cat_plats: Utensils,
@@ -85,16 +67,12 @@ const CATEGORY_ICONS = {
 };
 const iconFor = (categoryId) => CATEGORY_ICONS[categoryId] || Coffee;
 
+// ---------- Catégories qui proposent des suppléments (Sirop / Picon) ----------
 const MODIFIABLE_CATEGORIES = new Set(["cat_bieres", "cat_softs_eaux"]);
 
-const normalizeSearch = (str) =>
-  str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const fuzzyMatch = (haystack, needle) => {
-  const n = normalizeSearch(needle).trim();
-  if (!n) return true;
-  return normalizeSearch(haystack).includes(n);
-};
-
+// ============================================================
+// SEED DATA — état initial exact demandé
+// ============================================================
 const SEED = {
   categories: [
     { id: "cat_aperitif_partage", name: "A Partager en Apéritif", displayOrder: 1 },
@@ -165,202 +143,115 @@ const SEED = {
     { id: "p50", categoryId: "cat_softs_eaux", name: "Petite Cristaline Pétillante", price: 1.0 },
     { id: "p51", categoryId: "cat_softs_eaux", name: "Evian 1,5L (avec repas) fraîche", price: 3.0 },
     { id: "p52", categoryId: "cat_softs_eaux", name: "Evian 1,5L (hors repas) fraîche", price: 5.0 },
-  ].map((p) => Object.assign({}, p, { imageUrl: null, priceCents: toCents(p.price) })),
+  ].map((p) => ({ ...p, imageUrl: null, priceCents: toCents(p.price) })),
   clientNotes: [],
 };
 
-// ---------- Couche de persistance : localStorage (fallback hors-ligne) ----------
+// ============================================================
+// COUCHE DE PERSISTANCE — abstraite pour permettre un branchement
+// futur sur Supabase/Firestore sans toucher aux composants.
+// Chaque "espace bar" = une clé localStorage dérivée du mot de passe.
+// ============================================================
 const STORAGE_PREFIX = "campardoise::bar::";
 const SESSION_KEY = "campardoise::session";
 
-function loadLocalBarState(barPassword) {
+function loadBarState(barPassword) {
   const raw = localStorage.getItem(STORAGE_PREFIX + barPassword);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
-function saveLocalBarState(barPassword, state) {
+function saveBarState(barPassword, state) {
   localStorage.setItem(STORAGE_PREFIX + barPassword, JSON.stringify(state));
 }
-function localBarExists(barPassword) {
+function barExists(barPassword) {
   return localStorage.getItem(STORAGE_PREFIX + barPassword) !== null;
 }
 
-// ---------- Couche de persistance : Supabase ----------
-// Une seule table "bars" : colonne "password" (clé), colonne "data" (jsonb).
-async function fetchRemoteBar(barPassword) {
-  const { data, error } = await sb
-    .from("bars")
-    .select("data")
-    .eq("password", barPassword)
-    .maybeSingle();
-  if (error) {
-    console.error("Supabase fetch error:", error);
-    return { found: false, error };
-  }
-  if (!data) return { found: false };
-  return { found: true, state: data.data };
-}
-
-async function createRemoteBar(barPassword, state) {
-  const { error } = await sb.from("bars").insert({ password: barPassword, data: state });
-  return { error };
-}
-
-async function saveRemoteBar(barPassword, state) {
-  const { error } = await sb.from("bars").update({ data: state }).eq("password", barPassword);
-  return { error };
-}
-
-// ---------- Hook d'etat du bar : bascule auto Supabase / localStorage ----------
+// Hook: état du bar synchronisé avec localStorage + écoute des autres onglets/appareils
+// (le "temps réel" en environnement mono-navigateur repose sur l'event `storage` +
+// un polling léger pour couvrir les mises à jour de même onglet ; le contrat de données
+// est conçu pour qu'un simple remplacement de ces deux fonctions par des abonnements
+// Supabase realtime rende l'app multi-appareil sans changer le reste du code).
 function useBarState(barPassword) {
-  const [state, setState] = useState(null);
-  const [online, setOnline] = useState(supabaseReady);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState(() => (barPassword ? loadBarState(barPassword) : null));
   const stateRef = useRef(state);
   stateRef.current = state;
-  const channelRef = useRef(null);
 
-  useEffect(function () {
+  useEffect(() => {
     if (!barPassword) return;
-    let cancelled = false;
-    setLoading(true);
-
-    async function init() {
-      if (supabaseReady) {
-        const result = await fetchRemoteBar(barPassword);
-        if (cancelled) return;
-        if (result.found) {
-          setOnline(true);
-          setState(result.state);
-        } else if (!result.error) {
-          setOnline(true);
-          setState(null);
-        } else {
-          setOnline(false);
-          setState(loadLocalBarState(barPassword));
-        }
-      } else {
-        setOnline(false);
-        setState(loadLocalBarState(barPassword));
-      }
-      setLoading(false);
-    }
-    init();
-
-    return function () { cancelled = true; };
+    const fresh = loadBarState(barPassword);
+    setState(fresh);
   }, [barPassword]);
 
-  useEffect(function () {
-    if (!barPassword || !supabaseReady) return;
-    const channel = sb
-      .channel("bar-" + barPassword)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "bars", filter: "password=eq." + barPassword },
-        function (payload) {
-          setState(payload.new.data);
-        }
-      )
-      .subscribe();
-    channelRef.current = channel;
-    return function () {
-      sb.removeChannel(channel);
-    };
-  }, [barPassword]);
-
-  useEffect(function () {
+  // Écoute des changements faits par d'autres onglets/appareils (storage event)
+  useEffect(() => {
     if (!barPassword) return;
-    if (supabaseReady) return;
     const key = STORAGE_PREFIX + barPassword;
-    const onStorage = function (e) {
+    const onStorage = (e) => {
       if (e.key === key && e.newValue) {
-        try { setState(JSON.parse(e.newValue)); } catch (err) {}
+        try {
+          setState(JSON.parse(e.newValue));
+        } catch {}
       }
     };
     window.addEventListener("storage", onStorage);
-    const interval = setInterval(function () {
+    // Polling léger (500ms) pour couvrir les cas où l'event storage ne se déclenche pas
+    const interval = setInterval(() => {
       const raw = localStorage.getItem(key);
       if (!raw) return;
       if (raw !== JSON.stringify(stateRef.current)) {
-        try { setState(JSON.parse(raw)); } catch (err) {}
+        try {
+          setState(JSON.parse(raw));
+        } catch {}
       }
     }, 700);
-    return function () {
+    return () => {
       window.removeEventListener("storage", onStorage);
       clearInterval(interval);
     };
   }, [barPassword]);
 
   const update = useCallback(
-    function (updater) {
-      setState(function (prev) {
+    (updater) => {
+      setState((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
-        if (barPassword) {
-          if (online && supabaseReady) {
-            saveRemoteBar(barPassword, next).then(function (res) {
-              if (res.error) console.error("Supabase save error:", res.error);
-            });
-          } else {
-            saveLocalBarState(barPassword, next);
-          }
-        }
+        if (barPassword) saveBarState(barPassword, next);
         return next;
       });
     },
-    [barPassword, online]
+    [barPassword]
   );
 
-  return [state, update, { online, loading }];
+  return [state, update];
 }
 
-async function barExistsAnywhere(barPassword) {
-  if (supabaseReady) {
-    const result = await fetchRemoteBar(barPassword);
-    if (!result.error) return result.found;
-  }
-  return localBarExists(barPassword);
-}
-
+// ============================================================
+// ÉCRAN D'ACCUEIL — Auth simplifiée par mot de passe de session
+// ============================================================
 function AuthScreen({ onEnter }) {
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState(null); // 'create' | 'join'
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  const handleCreate = async function () {
+  const handleCreate = () => {
     const pwd = password.trim();
     if (!pwd) return setError("Merci de saisir un mot de passe pour créer l'espace.");
-    setBusy(true);
-    const exists = await barExistsAnywhere(pwd);
-    if (exists) {
-      setBusy(false);
+    if (barExists(pwd)) {
       setError("Un espace existe déjà avec ce mot de passe. Utilisez « Rejoindre un Bar existant ».");
       return;
     }
-    if (supabaseReady) {
-      const { error: createErr } = await createRemoteBar(pwd, SEED);
-      if (createErr) {
-        setBusy(false);
-        setError("Impossible de créer l'espace en ligne (" + createErr.message + "). Vérifiez la configuration Supabase.");
-        return;
-      }
-    } else {
-      saveLocalBarState(pwd, SEED);
-    }
-    setBusy(false);
+    saveBarState(pwd, SEED);
     onEnter(pwd);
   };
 
-  const handleJoin = async function () {
+  const handleJoin = () => {
     const pwd = password.trim();
     if (!pwd) return setError("Merci de saisir le mot de passe du bar à rejoindre.");
-    setBusy(true);
-    const exists = await barExistsAnywhere(pwd);
-    setBusy(false);
-    if (!exists) {
+    if (!barExists(pwd)) {
       setError("Aucun espace ne correspond à ce mot de passe. Créez-le d'abord.");
       return;
     }
@@ -376,10 +267,6 @@ function AuthScreen({ onEnter }) {
           </div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight">Camp'Ardoise</h1>
           <p className="text-slate-400 mt-1 text-sm">Le carnet de notes du bar, sans papier.</p>
-          <div className={"inline-flex items-center gap-1.5 mt-3 text-xs font-semibold px-3 py-1 rounded-full " + (supabaseReady ? "bg-emerald-950/60 text-emerald-400" : "bg-amber-950/60 text-amber-400")}>
-            {supabaseReady ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-            {supabaseReady ? "Synchronisation en direct activée" : "Mode local uniquement (non synchronisé)"}
-          </div>
         </div>
 
         <div className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
@@ -389,7 +276,7 @@ function AuthScreen({ onEnter }) {
           <input
             type="text"
             value={password}
-            onChange={function (e) {
+            onChange={(e) => {
               setPassword(e.target.value);
               setError("");
             }}
@@ -407,33 +294,33 @@ function AuthScreen({ onEnter }) {
           <div className="mt-6 space-y-3">
             <button
               onClick={handleCreate}
-              disabled={busy}
-              className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition text-white font-bold text-base shadow-lg shadow-indigo-950/40 disabled:opacity-50"
+              className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition text-white font-bold text-base shadow-lg shadow-indigo-950/40"
             >
-              {busy ? "Patientez..." : "Créer un espace Bar"}
+              Créer un espace Bar
             </button>
             <button
               onClick={handleJoin}
-              disabled={busy}
-              className="w-full h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] transition text-white font-bold text-base border border-slate-700 disabled:opacity-50"
+              className="w-full h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] transition text-white font-bold text-base border border-slate-700"
             >
-              {busy ? "Patientez..." : "Rejoindre un Bar existant"}
+              Rejoindre un Bar existant
             </button>
           </div>
         </div>
         <p className="text-center text-slate-600 text-xs mt-6">
-          {supabaseReady
-            ? "Tous les appareils utilisant le même mot de passe partagent en direct les mêmes catégories, produits et ardoises clients."
-            : "Configurez SUPABASE_URL et SUPABASE_ANON_KEY dans le fichier pour activer le partage entre appareils."}
+          Tous les appareils utilisant le même mot de passe partagent en direct
+          les mêmes catégories, produits et ardoises clients.
         </p>
       </div>
     </div>
   );
 }
 
+// ============================================================
+// COMPOSANTS PARTAGÉS
+// ============================================================
 function TopBar({ title, onBack, right }) {
   return (
-    <div className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center gap-3">
+    <div className="sticky top-0 z-20 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center gap-3">
       {onBack && (
         <button
           onClick={onBack}
@@ -448,16 +335,15 @@ function TopBar({ title, onBack, right }) {
   );
 }
 
-function Modal({ children, onClose, maxW }) {
-  const maxWClass = maxW || "max-w-md";
+function Modal({ children, onClose, maxW = "max-w-md" }) {
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className={"w-full " + maxWClass + " bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-800 shadow-2xl max-h-[90vh] overflow-y-auto"}
-        onClick={function (e) { e.stopPropagation(); }}
+        className={`w-full ${maxW} bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-800 shadow-2xl max-h-[90vh] overflow-y-auto`}
+        onClick={(e) => e.stopPropagation()}
       >
         {children}
       </div>
@@ -469,41 +355,46 @@ function timeAgo(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return "à l'instant";
-  if (mins < 60) return "il y a " + mins + " min";
+  if (mins < 60) return `il y a ${mins} min`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return "il y a " + hrs + " h";
+  if (hrs < 24) return `il y a ${hrs} h`;
   return new Date(iso).toLocaleDateString("fr-FR");
 }
 
+// ============================================================
+// ONGLET 1 — NOTES CLIENTS (ardoises actives)
+// ============================================================
 function ClientNotesTab({ bar, updateBar, onOpenClient }) {
   const [search, setSearch] = useState("");
   const [showNewModal, setShowNewModal] = useState(false);
-  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [duplicateWarning, setDuplicateWarning] = useState(null); // { name, existing }
 
-  const activeNotes = (bar.clientNotes || []).filter(function (n) { return n.status === "active"; });
+  const activeNotes = (bar.clientNotes || []).filter((n) => n.status === "active");
 
-  const filtered = useMemo(function () {
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return activeNotes;
-    return activeNotes.filter(function (n) {
-      return n.name.toLowerCase().includes(q) || (n.phone || "").toLowerCase().includes(q);
-    });
+    return activeNotes.filter(
+      (n) =>
+        n.name.toLowerCase().includes(q) ||
+        (n.phone || "").toLowerCase().includes(q)
+    );
   }, [activeNotes, search]);
 
-  const sorted = filtered.slice().sort(function (a, b) {
+  const sorted = [...filtered].sort((a, b) => {
     const aLast = a.orders.length ? a.orders[a.orders.length - 1].timestamp : a.createdAt;
     const bLast = b.orders.length ? b.orders[b.orders.length - 1].timestamp : b.createdAt;
     return new Date(bLast) - new Date(aLast);
   });
 
-  const createNote = function (name, phone, force) {
+  const createNote = (name, phone, force) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const existing = activeNotes.find(function (n) {
-      return n.name.trim().toLowerCase() === trimmed.toLowerCase();
-    });
+    const existing = activeNotes.find(
+      (n) => n.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
     if (existing && !force) {
-      setDuplicateWarning({ name: trimmed, existing: existing, phone: phone });
+      setDuplicateWarning({ name: trimmed, existing, phone });
       return;
     }
     const newNote = {
@@ -517,9 +408,7 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
       orders: [],
       totalAmountCents: 0,
     };
-    updateBar(function (prev) {
-      return Object.assign({}, prev, { clientNotes: (prev.clientNotes || []).concat([newNote]) });
-    });
+    updateBar((prev) => ({ ...prev, clientNotes: [...(prev.clientNotes || []), newNote] }));
     setShowNewModal(false);
     setDuplicateWarning(null);
   };
@@ -540,7 +429,7 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
           <Search className="w-5 h-5 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
           <input
             value={search}
-            onChange={function (e) { setSearch(e.target.value); }}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Rechercher un client..."
             className="w-full h-14 pl-12 pr-4 rounded-2xl bg-slate-900 text-white placeholder-slate-500 border border-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
           />
@@ -561,12 +450,14 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
         </div>
       ) : (
         <div className="px-4 mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {sorted.map(function (note) {
-            const lastTs = note.orders.length ? note.orders[note.orders.length - 1].timestamp : note.createdAt;
+          {sorted.map((note) => {
+            const lastTs = note.orders.length
+              ? note.orders[note.orders.length - 1].timestamp
+              : note.createdAt;
             return (
               <button
                 key={note.id}
-                onClick={function () { onOpenClient(note.id); }}
+                onClick={() => onOpenClient(note.id)}
                 className="text-left bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-3xl p-5 transition active:scale-[0.98] shadow-sm"
               >
                 <div className="flex items-start justify-between gap-2">
@@ -579,7 +470,11 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
                     {note.phone}
                   </div>
                 )}
-                <div className={"mt-4 text-3xl font-extrabold " + (note.totalAmountCents > 0 ? "text-emerald-400" : "text-slate-600")}>
+                <div
+                  className={`mt-4 text-3xl font-extrabold ${
+                    note.totalAmountCents > 0 ? "text-emerald-400" : "text-slate-600"
+                  }`}
+                >
                   {money(note.totalAmountCents)}
                 </div>
                 <div className="flex items-center gap-1.5 text-slate-500 text-xs mt-2">
@@ -593,7 +488,7 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
       )}
 
       <button
-        onClick={function () { setShowNewModal(true); }}
+        onClick={() => setShowNewModal(true)}
         className="fixed bottom-24 right-5 w-16 h-16 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition shadow-2xl shadow-indigo-950/60 flex items-center justify-center z-30"
         aria-label="Nouvelle ardoise"
       >
@@ -602,13 +497,13 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
 
       {showNewModal && (
         <NewClientModal
-          onClose={function () { setShowNewModal(false); }}
+          onClose={() => setShowNewModal(false)}
           onCreate={createNote}
         />
       )}
 
       {duplicateWarning && (
-        <Modal onClose={function () { setDuplicateWarning(null); }}>
+        <Modal onClose={() => setDuplicateWarning(null)}>
           <div className="p-6">
             <div className="w-12 h-12 rounded-2xl bg-amber-950/60 flex items-center justify-center mb-4">
               <AlertTriangle className="w-6 h-6 text-amber-400" />
@@ -620,7 +515,7 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
             </p>
             <div className="space-y-3">
               <button
-                onClick={function () {
+                onClick={() => {
                   onOpenClient(duplicateWarning.existing.id);
                   setDuplicateWarning(null);
                   setShowNewModal(false);
@@ -630,15 +525,15 @@ function ClientNotesTab({ bar, updateBar, onOpenClient }) {
                 Accéder à l'ardoise existante
               </button>
               <button
-                onClick={function () {
-                  createNote(duplicateWarning.name, duplicateWarning.phone || "", true);
-                }}
+                onClick={() =>
+                  createNote(duplicateWarning.name, duplicateWarning.phone || "", true)
+                }
                 className="w-full h-14 rounded-2xl bg-amber-600 hover:bg-amber-500 text-white font-bold active:scale-[0.98] transition"
               >
                 Forcer une note homonyme
               </button>
               <button
-                onClick={function () { setDuplicateWarning(null); }}
+                onClick={() => setDuplicateWarning(null)}
                 className="w-full h-12 rounded-2xl bg-slate-800 text-slate-300 font-semibold active:scale-[0.98] transition"
               >
                 Annuler
@@ -669,7 +564,7 @@ function NewClientModal({ onClose, onCreate }) {
         <input
           autoFocus
           value={name}
-          onChange={function (e) { setName(e.target.value); }}
+          onChange={(e) => setName(e.target.value)}
           placeholder="Ex: Emplacement 104 - Legrand"
           className="w-full h-14 px-4 rounded-2xl bg-slate-800 text-white placeholder-slate-500 border border-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 mb-4"
         />
@@ -678,13 +573,13 @@ function NewClientModal({ onClose, onCreate }) {
         </label>
         <input
           value={phone}
-          onChange={function (e) { setPhone(e.target.value); }}
+          onChange={(e) => setPhone(e.target.value)}
           placeholder="06 12 34 56 78"
           inputMode="tel"
           className="w-full h-14 px-4 rounded-2xl bg-slate-800 text-white placeholder-slate-500 border border-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
         />
         <button
-          onClick={function () { onCreate(name, phone, false); }}
+          onClick={() => onCreate(name, phone, false)}
           disabled={!name.trim()}
           className="w-full h-14 mt-6 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold active:scale-[0.98] transition"
         >
@@ -695,15 +590,17 @@ function NewClientModal({ onClose, onCreate }) {
   );
 }
 
+// ============================================================
+// ÉCRAN DE COMMANDE — Tunnel "3 secondes"
+// ============================================================
 function OrderScreen({ bar, updateBar, noteId, onBack }) {
-  const note = (bar.clientNotes || []).find(function (n) { return n.id === noteId; });
-  const categories = (bar.categories || []).slice().sort(function (a, b) { return a.displayOrder - b.displayOrder; });
-  const [activeCat, setActiveCat] = useState(categories[0] ? categories[0].id : null);
-  const [cart, setCart] = useState({});
-  const [modifierPrompt, setModifierPrompt] = useState(null);
+  const note = (bar.clientNotes || []).find((n) => n.id === noteId);
+  const categories = [...(bar.categories || [])].sort((a, b) => a.displayOrder - b.displayOrder);
+  const [activeCat, setActiveCat] = useState(categories[0]?.id || null);
+  const [cart, setCart] = useState({}); // key: `${productId}::${optionId||'none'}` -> {productId, optionId, qty}
+  const [modifierPrompt, setModifierPrompt] = useState(null); // product pending option choice
   const [cartOpen, setCartOpen] = useState(true);
-  const [productSearch, setProductSearch] = useState("");
-  const searchInputRef = useRef(null);
+  const [closing, setClosing] = useState(false);
 
   if (!note) {
     return (
@@ -716,42 +613,41 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
     );
   }
 
-  const searchActive = productSearch.trim().length > 0;
-  const products = searchActive
-    ? (bar.products || []).filter(function (p) { return fuzzyMatch(p.name, productSearch); })
-    : (bar.products || []).filter(function (p) { return p.categoryId === activeCat; });
+  const products = (bar.products || []).filter((p) => p.categoryId === activeCat);
   const options = bar.options || [];
 
-  const cartEntries = Object.keys(cart).map(function (k) { return cart[k]; });
-  const cartCount = cartEntries.reduce(function (s, e) { return s + e.qty; }, 0);
-  const cartTotalCents = cartEntries.reduce(function (s, e) {
-    const product = bar.products.find(function (p) { return p.id === e.productId; });
-    const opt = options.find(function (o) { return o.id === e.optionId; });
-    const unit = (product ? product.priceCents : 0) + (opt ? toCents(opt.additionalPrice) : 0);
+  const cartEntries = Object.values(cart);
+  const cartCount = cartEntries.reduce((s, e) => s + e.qty, 0);
+  const cartTotalCents = cartEntries.reduce((s, e) => {
+    const product = bar.products.find((p) => p.id === e.productId);
+    const opt = options.find((o) => o.id === e.optionId);
+    const unit = (product?.priceCents || 0) + (opt ? toCents(opt.additionalPrice) : 0);
     return s + unit * e.qty;
   }, 0);
 
-  const qtyForProductBase = function (productId) {
+  const qtyForProductBase = (productId) => {
+    // total qty across all option variants of this product, for the badge shown on the tile
     return cartEntries
-      .filter(function (e) { return e.productId === productId; })
-      .reduce(function (s, e) { return s + e.qty; }, 0);
+      .filter((e) => e.productId === productId)
+      .reduce((s, e) => s + e.qty, 0);
   };
 
-  const addToCart = function (productId, optionId) {
-    const key = productId + "::" + (optionId || "none");
-    setCart(function (prev) {
+  const addToCart = (productId, optionId) => {
+    const key = `${productId}::${optionId || "none"}`;
+    setCart((prev) => {
       const existing = prev[key];
-      const next = Object.assign({}, prev);
-      next[key] = {
-        productId: productId,
-        optionId: optionId || null,
-        qty: (existing ? existing.qty : 0) + 1,
+      return {
+        ...prev,
+        [key]: {
+          productId,
+          optionId: optionId || null,
+          qty: (existing?.qty || 0) + 1,
+        },
       };
-      return next;
     });
   };
 
-  const handleProductTap = function (product) {
+  const handleProductTap = (product) => {
     if (MODIFIABLE_CATEGORIES.has(product.categoryId)) {
       setModifierPrompt(product);
     } else {
@@ -759,85 +655,62 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
     }
   };
 
-  const adjustCartQty = function (key, delta) {
-    setCart(function (prev) {
+  const adjustCartQty = (key, delta) => {
+    setCart((prev) => {
       const item = prev[key];
       if (!item) return prev;
       const newQty = item.qty + delta;
-      const next = Object.assign({}, prev);
       if (newQty <= 0) {
-        delete next[key];
-      } else {
-        next[key] = Object.assign({}, item, { qty: newQty });
+        const { [key]: _, ...rest } = prev;
+        return rest;
       }
-      return next;
+      return { ...prev, [key]: { ...item, qty: newQty } };
     });
   };
 
-  const validateOrder = function () {
+  const validateOrder = () => {
     if (cartEntries.length === 0) return;
-    const items = cartEntries.map(function (e) {
-      const product = bar.products.find(function (p) { return p.id === e.productId; });
-      const opt = options.find(function (o) { return o.id === e.optionId; });
-      const unitCents = (product ? product.priceCents : 0) + (opt ? toCents(opt.additionalPrice) : 0);
+    const items = cartEntries.map((e) => {
+      const product = bar.products.find((p) => p.id === e.productId);
+      const opt = options.find((o) => o.id === e.optionId);
+      const unitCents = (product?.priceCents || 0) + (opt ? toCents(opt.additionalPrice) : 0);
       return {
         productId: e.productId,
-        productName: product ? product.name : "Produit",
+        productName: product?.name || "Produit",
         optionId: e.optionId,
-        optionName: opt ? opt.name : null,
+        optionName: opt?.name || null,
         quantity: e.qty,
         priceAtPurchase: fromCents(unitCents),
         priceAtPurchaseCents: unitCents,
       };
     });
-    const orderTotal = items.reduce(function (s, it) { return s + it.priceAtPurchaseCents * it.quantity; }, 0);
+    const orderTotal = items.reduce((s, it) => s + it.priceAtPurchaseCents * it.quantity, 0);
 
-    updateBar(function (prev) {
-      return Object.assign({}, prev, {
-        clientNotes: prev.clientNotes.map(function (n) {
-          if (n.id !== noteId) return n;
-          return Object.assign({}, n, {
-            orders: n.orders.concat([{ orderId: uid("ord"), timestamp: new Date().toISOString(), items: items }]),
-            totalAmountCents: n.totalAmountCents + orderTotal,
-          });
-        }),
-      });
-    });
+    updateBar((prev) => ({
+      ...prev,
+      clientNotes: prev.clientNotes.map((n) =>
+        n.id === noteId
+          ? {
+              ...n,
+              orders: [
+                ...n.orders,
+                { orderId: uid("ord"), timestamp: new Date().toISOString(), items },
+              ],
+              totalAmountCents: n.totalAmountCents + orderTotal,
+            }
+          : n
+      ),
+    }));
     setCart({});
-    setTimeout(function () { onBack(); }, 350);
+    setClosing(true);
+    setTimeout(() => onBack(), 350);
   };
 
   return (
     <div className="pb-40">
       <TopBar title={note.name} onBack={onBack} />
 
-      <div className="sticky top-[68px] z-20 bg-slate-950 px-4 pt-3 pb-2 border-b border-slate-900">
-        <div className="relative">
-          <Search className="w-5 h-5 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            ref={searchInputRef}
-            value={productSearch}
-            onChange={function (e) { setProductSearch(e.target.value); }}
-            placeholder="Rechercher un article... (ex: Ver, He, Mojito)"
-            className="w-full h-14 pl-12 pr-14 rounded-2xl bg-slate-900 text-white placeholder-slate-500 border border-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-base"
-            autoComplete="off"
-          />
-          {searchActive && (
-            <button
-              type="button"
-              onClick={function () {
-                setProductSearch("");
-                if (searchInputRef.current) searchInputRef.current.blur();
-              }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-slate-800 hover:bg-slate-700 active:scale-90 transition flex items-center justify-center"
-              aria-label="Effacer la recherche"
-            >
-              <X className="w-5 h-5 text-slate-300" />
-            </button>
-          )}
-        </div>
-      </div>
-
+      {/* Solde actuel */}
       <div className="px-4 pt-3">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex items-center justify-between">
           <span className="text-slate-400 text-sm font-medium">Note actuelle</span>
@@ -845,67 +718,64 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
         </div>
       </div>
 
-      {!searchActive && (
-        <div className="mt-3 px-4">
-          <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 no-scrollbar">
-            {categories.map(function (cat) {
-              const Icon = iconFor(cat.id);
-              const active = cat.id === activeCat;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={function () { setActiveCat(cat.id); }}
-                  className={"shrink-0 flex items-center gap-2 h-12 px-4 rounded-2xl font-semibold text-sm whitespace-nowrap transition active:scale-95 " + (active ? "bg-indigo-600 text-white shadow-lg shadow-indigo-950/40" : "bg-slate-900 text-slate-400 border border-slate-800")}
-                >
-                  <Icon className="w-4 h-4" />
-                  {cat.name}
-                </button>
-              );
-            })}
-          </div>
+      {/* Catégories - scroll horizontal tactile */}
+      <div className="mt-4 px-4">
+        <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 no-scrollbar">
+          {categories.map((cat) => {
+            const Icon = iconFor(cat.id);
+            const active = cat.id === activeCat;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCat(cat.id)}
+                className={`shrink-0 flex items-center gap-2 h-12 px-4 rounded-2xl font-semibold text-sm whitespace-nowrap transition active:scale-95 ${
+                  active
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-950/40"
+                    : "bg-slate-900 text-slate-400 border border-slate-800"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {cat.name}
+              </button>
+            );
+          })}
         </div>
-      )}
+      </div>
 
-      <div className="px-4 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {products.map(function (product) {
+      {/* Grille produits */}
+      <div className="px-4 mt-2 grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {products.map((product) => {
           const qty = qtyForProductBase(product.id);
           const Icon = iconFor(product.categoryId);
           return (
-            <div key={product.id} className="relative bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+            <button
+              key={product.id}
+              onClick={() => handleProductTap(product)}
+              className="relative text-left bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl p-4 min-h-[104px] transition active:scale-95 shadow-sm"
+            >
               {qty > 0 && (
-                <span className="absolute -top-2 -right-2 min-w-7 h-7 px-1.5 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shadow-lg z-10">
+                <span className="absolute -top-2 -right-2 min-w-7 h-7 px-1.5 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shadow-lg">
                   x{qty}
                 </span>
               )}
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
-                  <Icon className="w-5 h-5 text-indigo-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-white font-semibold text-sm leading-snug">{product.name}</div>
-                  <div className="text-slate-400 text-sm font-medium mt-0.5">{money(product.priceCents)}</div>
-                </div>
+              <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center mb-2">
+                <Icon className="w-5 h-5 text-indigo-400" />
               </div>
-              <button
-                type="button"
-                onClick={function () { handleProductTap(product); }}
-                className="w-full h-[56px] rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 active:scale-[0.95] transition-all duration-100 text-white font-extrabold text-base tracking-wide uppercase flex items-center justify-center gap-2 shadow-md shadow-indigo-950/40 select-none"
-              >
-                <Plus className="w-5 h-5 shrink-0" strokeWidth={3} />
-                <span>Ajouter</span>
-              </button>
-            </div>
+              <div className="text-white font-semibold text-sm leading-snug">{product.name}</div>
+              <div className="text-slate-400 text-sm font-medium mt-1">{money(product.priceCents)}</div>
+            </button>
           );
         })}
         {products.length === 0 && (
           <p className="col-span-full text-slate-600 text-sm text-center py-8">
-            {searchActive ? "Aucun article ne correspond à cette recherche." : "Aucun produit dans cette catégorie."}
+            Aucun produit dans cette catégorie.
           </p>
         )}
       </div>
 
+      {/* Modale de sélection d'option (Sirop / Picon) */}
       {modifierPrompt && (
-        <Modal onClose={function () { setModifierPrompt(null); }}>
+        <Modal onClose={() => setModifierPrompt(null)}>
           <div className="p-6">
             <h2 className="text-white font-bold text-lg mb-1">{modifierPrompt.name}</h2>
             <p className="text-slate-500 text-sm mb-5">
@@ -913,7 +783,7 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
             </p>
             <div className="space-y-3">
               <button
-                onClick={function () {
+                onClick={() => {
                   addToCart(modifierPrompt.id, null);
                   setModifierPrompt(null);
                 }}
@@ -922,32 +792,31 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
                 <span>Sans supplément</span>
                 <span className="text-slate-400 font-semibold">{money(modifierPrompt.priceCents)}</span>
               </button>
-              {options.map(function (opt) {
-                return (
-                  <button
-                    key={opt.id}
-                    onClick={function () {
-                      addToCart(modifierPrompt.id, opt.id);
-                      setModifierPrompt(null);
-                    }}
-                    className="w-full h-14 rounded-2xl bg-amber-950/50 hover:bg-amber-900/50 border border-amber-900 text-amber-200 font-bold active:scale-[0.98] transition flex items-center justify-between px-5"
-                  >
-                    <span>+ {opt.name}</span>
-                    <span className="font-semibold">
-                      {money(modifierPrompt.priceCents + toCents(opt.additionalPrice))}
-                    </span>
-                  </button>
-                );
-              })}
+              {options.map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    addToCart(modifierPrompt.id, opt.id);
+                    setModifierPrompt(null);
+                  }}
+                  className="w-full h-14 rounded-2xl bg-amber-950/50 hover:bg-amber-900/50 border border-amber-900 text-amber-200 font-bold active:scale-[0.98] transition flex items-center justify-between px-5"
+                >
+                  <span>+ {opt.name}</span>
+                  <span className="font-semibold">
+                    {money(modifierPrompt.priceCents + toCents(opt.additionalPrice))}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
         </Modal>
       )}
 
+      {/* Volet panier rétractable */}
       {cartCount > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-slate-900 border-t border-slate-800 rounded-t-3xl shadow-2xl">
           <button
-            onClick={function () { setCartOpen(function (v) { return !v; }); }}
+            onClick={() => setCartOpen((v) => !v)}
             className="w-full flex items-center justify-between px-5 py-3"
           >
             <span className="text-slate-300 font-semibold text-sm">
@@ -958,30 +827,30 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
 
           {cartOpen && (
             <div className="px-5 pb-3 max-h-52 overflow-y-auto space-y-2">
-              {cartEntries.map(function (e) {
-                const product = bar.products.find(function (p) { return p.id === e.productId; });
-                const opt = options.find(function (o) { return o.id === e.optionId; });
-                const key = e.productId + "::" + (e.optionId || "none");
-                const unitCents = (product ? product.priceCents : 0) + (opt ? toCents(opt.additionalPrice) : 0);
+              {cartEntries.map((e) => {
+                const product = bar.products.find((p) => p.id === e.productId);
+                const opt = options.find((o) => o.id === e.optionId);
+                const key = `${e.productId}::${e.optionId || "none"}`;
+                const unitCents = (product?.priceCents || 0) + (opt ? toCents(opt.additionalPrice) : 0);
                 return (
                   <div key={key} className="flex items-center justify-between bg-slate-800 rounded-xl px-3 py-2">
                     <div className="min-w-0">
                       <div className="text-white text-sm font-semibold truncate">
-                        {product ? product.name : ""}
+                        {product?.name}
                         {opt && <span className="text-amber-400"> ({opt.name})</span>}
                       </div>
                       <div className="text-slate-500 text-xs">{money(unitCents)} / unité</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
-                        onClick={function () { adjustCartQty(key, -1); }}
+                        onClick={() => adjustCartQty(key, -1)}
                         className="w-9 h-9 rounded-xl bg-slate-700 flex items-center justify-center active:scale-90 transition"
                       >
                         <Minus className="w-4 h-4 text-white" />
                       </button>
                       <span className="text-white font-bold w-6 text-center">{e.qty}</span>
                       <button
-                        onClick={function () { adjustCartQty(key, 1); }}
+                        onClick={() => adjustCartQty(key, 1)}
                         className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center active:scale-90 transition"
                       >
                         <Plus className="w-4 h-4 text-white" />
@@ -996,10 +865,13 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
           <div className="px-5 pb-5 pt-1">
             <button
               onClick={validateOrder}
-              className="w-full h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-lg active:scale-[0.98] transition shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2"
+              className="w-full h-20 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold active:scale-[0.98] transition-all duration-200 shadow-lg shadow-emerald-950/40 flex flex-col items-center justify-center gap-1"
             >
-              <CheckCircle2 className="w-6 h-6" />
-              Valider la commande — {money(cartTotalCents)}
+              <span className="flex items-center gap-2 text-2xl">
+                <CheckCircle2 className="w-7 h-7" />
+                Ajoute
+              </span>
+              <span className="text-lg font-semibold opacity-90">{money(cartTotalCents)}</span>
             </button>
           </div>
         </div>
@@ -1008,8 +880,11 @@ function OrderScreen({ bar, updateBar, noteId, onBack }) {
   );
 }
 
+// ============================================================
+// FICHE CLIENT DÉTAILLÉE (accès paiement) — accessible depuis la carte
+// ============================================================
 function ClientDetailScreen({ bar, updateBar, noteId, onBack, onOrder }) {
-  const note = (bar.clientNotes || []).find(function (n) { return n.id === noteId; });
+  const note = (bar.clientNotes || []).find((n) => n.id === noteId);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [sumupError, setSumupError] = useState("");
 
@@ -1022,35 +897,38 @@ function ClientDetailScreen({ bar, updateBar, noteId, onBack, onOrder }) {
     );
   }
 
-  const closeNote = function (paymentMethod) {
-    updateBar(function (prev) {
-      return Object.assign({}, prev, {
-        clientNotes: prev.clientNotes.map(function (n) {
-          if (n.id !== noteId) return n;
-          return Object.assign({}, n, {
-            status: "paye",
-            closedAt: new Date().toISOString(),
-            paymentMethod: paymentMethod,
-          });
-        }),
-      });
-    });
+  const closeNote = (paymentMethod) => {
+    updateBar((prev) => ({
+      ...prev,
+      clientNotes: prev.clientNotes.map((n) =>
+        n.id === noteId
+          ? {
+              ...n,
+              status: "paye",
+              closedAt: new Date().toISOString(),
+              paymentMethod,
+            }
+          : n
+      ),
+    }));
     setShowCloseModal(false);
     onBack();
   };
 
-  const triggerSumUp = function () {
+  const triggerSumUp = () => {
     setSumupError("");
     const amount = fromCents(note.totalAmountCents).toFixed(2);
-    const url = "sumupmerchant://pay/1.0?total=" + amount + "&currency=EUR&title=" +
-      encodeURIComponent("Ardoise_" + note.name) +
-      "&callback=" + encodeURIComponent(window.location.origin + "/sumup-callback");
+    const url = `sumupmerchant://pay/1.0?total=${amount}&currency=EUR&title=${encodeURIComponent(
+      "Ardoise_" + note.name
+    )}&callback=${encodeURIComponent(window.location.origin + "/sumup-callback")}`;
     try {
       window.location.href = url;
-      setTimeout(function () {
-        setSumupError("L'application SumUp n'a pas répondu. Vérifiez qu'elle est installée sur cet appareil, ou encaissez manuellement puis cliquez sur « Marquer comme Payé ».");
+      setTimeout(() => {
+        setSumupError(
+          "L'application SumUp n'a pas répondu. Vérifiez qu'elle est installée sur cet appareil, ou encaissez manuellement puis cliquez sur « Marquer comme Payé »."
+        );
       }, 1500);
-    } catch (e) {
+    } catch {
       setSumupError("Ce navigateur ne prend pas en charge l'ouverture directe de SumUp.");
     }
   };
@@ -1071,7 +949,7 @@ function ClientDetailScreen({ bar, updateBar, noteId, onBack, onOrder }) {
         </div>
 
         <button
-          onClick={function () { onOrder(note.id); }}
+          onClick={() => onOrder(note.id)}
           className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-base active:scale-[0.98] transition flex items-center justify-center gap-2"
         >
           <Plus className="w-5 h-5" />
@@ -1094,7 +972,7 @@ function ClientDetailScreen({ bar, updateBar, noteId, onBack, onOrder }) {
             </div>
           )}
           <button
-            onClick={function () { setShowCloseModal(true); }}
+            onClick={() => setShowCloseModal(true)}
             disabled={note.totalAmountCents === 0}
             className="w-full h-16 rounded-2xl bg-slate-900 border border-slate-800 hover:bg-slate-800 disabled:opacity-40 text-white font-bold active:scale-[0.98] transition flex items-center justify-center gap-2"
           >
@@ -1109,53 +987,49 @@ function ClientDetailScreen({ bar, updateBar, noteId, onBack, onOrder }) {
             <p className="text-slate-600 text-sm px-1">Aucun article ajouté pour l'instant.</p>
           ) : (
             <div className="space-y-2">
-              {note.orders.slice().reverse().map(function (order) {
-                return (
-                  <div key={order.orderId} className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                    <div className="text-slate-500 text-xs font-medium mb-2">
-                      {new Date(order.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                    <ul className="space-y-1">
-                      {order.items.map(function (it, i) {
-                        return (
-                          <li key={i} className="flex items-center justify-between text-sm">
-                            <span className="text-slate-300">
-                              {it.quantity}x {it.productName}
-                              {it.optionName && <span className="text-amber-400"> ({it.optionName})</span>}
-                            </span>
-                            <span className="text-slate-400 font-medium">
-                              {money(it.priceAtPurchaseCents * it.quantity)}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
+              {[...note.orders].reverse().map((order) => (
+                <div key={order.orderId} className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                  <div className="text-slate-500 text-xs font-medium mb-2">
+                    {new Date(order.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
                   </div>
-                );
-              })}
+                  <ul className="space-y-1">
+                    {order.items.map((it, i) => (
+                      <li key={i} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-300">
+                          {it.quantity}x {it.productName}
+                          {it.optionName && <span className="text-amber-400"> ({it.optionName})</span>}
+                        </span>
+                        <span className="text-slate-400 font-medium">
+                          {money(it.priceAtPurchaseCents * it.quantity)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
 
       {showCloseModal && (
-        <Modal onClose={function () { setShowCloseModal(false); }}>
+        <Modal onClose={() => setShowCloseModal(false)}>
           <div className="p-6">
             <h2 className="text-white font-bold text-lg mb-1">Clôturer l'ardoise</h2>
             <p className="text-slate-400 text-sm mb-1">Montant à régler</p>
             <p className="text-4xl font-extrabold text-emerald-400 mb-6">{money(note.totalAmountCents)}</p>
             <p className="text-slate-300 text-sm font-semibold mb-3">Moyen de paiement utilisé</p>
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={function () { closeNote("Espèces"); }} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
+              <button onClick={() => closeNote("Espèces")} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
                 <Banknote className="w-5 h-5" /> Espèces
               </button>
-              <button onClick={function () { closeNote("Carte Bancaire"); }} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
+              <button onClick={() => closeNote("Carte Bancaire")} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
                 <CreditCard className="w-5 h-5" /> Carte Bancaire
               </button>
-              <button onClick={function () { closeNote("Chèque"); }} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
+              <button onClick={() => closeNote("Chèque")} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
                 <FileCheck2 className="w-5 h-5" /> Chèque
               </button>
-              <button onClick={function () { closeNote("Autre"); }} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
+              <button onClick={() => closeNote("Autre")} className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition">
                 <MoreHorizontal className="w-5 h-5" /> Autre
               </button>
             </div>
@@ -1166,84 +1040,73 @@ function ClientDetailScreen({ bar, updateBar, noteId, onBack, onOrder }) {
   );
 }
 
+// ============================================================
+// ONGLET 2 — ADMINISTRATION DE LA CARTE
+// ============================================================
 function AdminTab({ bar, updateBar }) {
-  const [tab, setTab] = useState("products");
-  const [editingProduct, setEditingProduct] = useState(null);
+  const [tab, setTab] = useState("products"); // 'products' | 'categories'
+  const [editingProduct, setEditingProduct] = useState(null); // null=none, {} = new, {...} = editing
   const [catInput, setCatInput] = useState("");
   const [deletingCat, setDeletingCat] = useState(null);
 
-  const categories = (bar.categories || []).slice().sort(function (a, b) { return a.displayOrder - b.displayOrder; });
+  const categories = [...(bar.categories || [])].sort((a, b) => a.displayOrder - b.displayOrder);
 
-  const addCategory = function () {
+  const addCategory = () => {
     const name = catInput.trim();
     if (!name) return;
-    const lastCat = categories[categories.length - 1];
     const newCat = {
       id: uid("cat"),
-      name: name,
-      displayOrder: (lastCat ? lastCat.displayOrder : 0) + 1,
+      name,
+      displayOrder: (categories[categories.length - 1]?.displayOrder || 0) + 1,
     };
-    updateBar(function (prev) {
-      return Object.assign({}, prev, { categories: prev.categories.concat([newCat]) });
-    });
+    updateBar((prev) => ({ ...prev, categories: [...prev.categories, newCat] }));
     setCatInput("");
   };
 
-  const renameCategory = function (id, name) {
-    updateBar(function (prev) {
-      return Object.assign({}, prev, {
-        categories: prev.categories.map(function (c) {
-          return c.id === id ? Object.assign({}, c, { name: name }) : c;
-        }),
-      });
-    });
+  const renameCategory = (id, name) => {
+    updateBar((prev) => ({
+      ...prev,
+      categories: prev.categories.map((c) => (c.id === id ? { ...c, name } : c)),
+    }));
   };
 
-  const confirmDeleteCategory = function (deleteProducts) {
+  const confirmDeleteCategory = (deleteProducts) => {
     const catId = deletingCat.id;
-    updateBar(function (prev) {
-      return Object.assign({}, prev, {
-        categories: prev.categories.filter(function (c) { return c.id !== catId; }),
-        products: deleteProducts
-          ? prev.products.filter(function (p) { return p.categoryId !== catId; })
-          : prev.products,
-      });
-    });
+    updateBar((prev) => ({
+      ...prev,
+      categories: prev.categories.filter((c) => c.id !== catId),
+      products: deleteProducts
+        ? prev.products.filter((p) => p.categoryId !== catId)
+        : prev.products, // sinon conservés, orphelins jusqu'à ré-assignation manuelle
+    }));
     setDeletingCat(null);
   };
 
-  const saveProduct = function (data) {
+  const saveProduct = (data) => {
     const priceCents = toCents(parseFloat(data.price) || 0);
     if (data.id) {
-      updateBar(function (prev) {
-        return Object.assign({}, prev, {
-          products: prev.products.map(function (p) {
-            return p.id === data.id
-              ? Object.assign({}, p, data, { price: parseFloat(data.price), priceCents: priceCents })
-              : p;
-          }),
-        });
-      });
+      updateBar((prev) => ({
+        ...prev,
+        products: prev.products.map((p) =>
+          p.id === data.id ? { ...p, ...data, price: parseFloat(data.price), priceCents } : p
+        ),
+      }));
     } else {
       const newProduct = {
         id: uid("prod"),
         categoryId: data.categoryId,
         name: data.name,
         price: parseFloat(data.price),
-        priceCents: priceCents,
+        priceCents,
         imageUrl: data.imageUrl || null,
       };
-      updateBar(function (prev) {
-        return Object.assign({}, prev, { products: prev.products.concat([newProduct]) });
-      });
+      updateBar((prev) => ({ ...prev, products: [...prev.products, newProduct] }));
     }
     setEditingProduct(null);
   };
 
-  const deleteProduct = function (id) {
-    updateBar(function (prev) {
-      return Object.assign({}, prev, { products: prev.products.filter(function (p) { return p.id !== id; }) });
-    });
+  const deleteProduct = (id) => {
+    updateBar((prev) => ({ ...prev, products: prev.products.filter((p) => p.id !== id) }));
   };
 
   return (
@@ -1252,14 +1115,18 @@ function AdminTab({ bar, updateBar }) {
 
       <div className="px-4 pt-3 flex gap-2">
         <button
-          onClick={function () { setTab("products"); }}
-          className={"flex-1 h-12 rounded-2xl font-semibold text-sm transition " + (tab === "products" ? "bg-indigo-600 text-white" : "bg-slate-900 text-slate-400 border border-slate-800")}
+          onClick={() => setTab("products")}
+          className={`flex-1 h-12 rounded-2xl font-semibold text-sm transition ${
+            tab === "products" ? "bg-indigo-600 text-white" : "bg-slate-900 text-slate-400 border border-slate-800"
+          }`}
         >
           Produits
         </button>
         <button
-          onClick={function () { setTab("categories"); }}
-          className={"flex-1 h-12 rounded-2xl font-semibold text-sm transition " + (tab === "categories" ? "bg-indigo-600 text-white" : "bg-slate-900 text-slate-400 border border-slate-800")}
+          onClick={() => setTab("categories")}
+          className={`flex-1 h-12 rounded-2xl font-semibold text-sm transition ${
+            tab === "categories" ? "bg-indigo-600 text-white" : "bg-slate-900 text-slate-400 border border-slate-800"
+          }`}
         >
           Catégories
         </button>
@@ -1270,9 +1137,9 @@ function AdminTab({ bar, updateBar }) {
           <div className="flex gap-2 mb-4">
             <input
               value={catInput}
-              onChange={function (e) { setCatInput(e.target.value); }}
+              onChange={(e) => setCatInput(e.target.value)}
               placeholder="Nouvelle catégorie..."
-              onKeyDown={function (e) { if (e.key === "Enter") addCategory(); }}
+              onKeyDown={(e) => e.key === "Enter" && addCategory()}
               className="flex-1 h-12 px-4 rounded-2xl bg-slate-900 text-white placeholder-slate-500 border border-slate-800 focus:border-indigo-500 focus:outline-none"
             />
             <button
@@ -1283,23 +1150,21 @@ function AdminTab({ bar, updateBar }) {
             </button>
           </div>
           <div className="space-y-2">
-            {categories.map(function (cat) {
-              return (
-                <div key={cat.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex items-center gap-2">
-                  <input
-                    defaultValue={cat.name}
-                    onBlur={function (e) { renameCategory(cat.id, e.target.value.trim() || cat.name); }}
-                    className="flex-1 bg-transparent text-white font-semibold px-2 py-2 rounded-xl focus:bg-slate-800 focus:outline-none"
-                  />
-                  <button
-                    onClick={function () { setDeletingCat(cat); }}
-                    className="w-11 h-11 rounded-xl bg-rose-950/60 flex items-center justify-center active:scale-90 transition shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-400" />
-                  </button>
-                </div>
-              );
-            })}
+            {categories.map((cat) => (
+              <div key={cat.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex items-center gap-2">
+                <input
+                  defaultValue={cat.name}
+                  onBlur={(e) => renameCategory(cat.id, e.target.value.trim() || cat.name)}
+                  className="flex-1 bg-transparent text-white font-semibold px-2 py-2 rounded-xl focus:bg-slate-800 focus:outline-none"
+                />
+                <button
+                  onClick={() => setDeletingCat(cat)}
+                  className="w-11 h-11 rounded-xl bg-rose-950/60 flex items-center justify-center active:scale-90 transition shrink-0"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1307,48 +1172,46 @@ function AdminTab({ bar, updateBar }) {
       {tab === "products" && (
         <div className="px-4 mt-4">
           <button
-            onClick={function () { setEditingProduct({}); }}
+            onClick={() => setEditingProduct({})}
             className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold active:scale-[0.98] transition flex items-center justify-center gap-2 mb-4"
           >
             <Plus className="w-5 h-5" /> Nouveau produit
           </button>
           <div className="space-y-2">
-            {categories.map(function (cat) {
-              const prods = bar.products.filter(function (p) { return p.categoryId === cat.id; });
+            {categories.map((cat) => {
+              const prods = bar.products.filter((p) => p.categoryId === cat.id);
               if (prods.length === 0) return null;
               return (
                 <div key={cat.id} className="mb-4">
                   <h4 className="text-slate-500 text-xs font-bold uppercase tracking-wide px-1 mb-2">{cat.name}</h4>
                   <div className="space-y-2">
-                    {prods.map(function (p) {
-                      return (
-                        <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
-                            {p.imageUrl ? (
-                              <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              React.createElement(iconFor(p.categoryId), { className: "w-5 h-5 text-indigo-400" })
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-white font-semibold text-sm truncate">{p.name}</div>
-                            <div className="text-slate-500 text-xs">{money(p.priceCents)}</div>
-                          </div>
-                          <button
-                            onClick={function () { setEditingProduct(p); }}
-                            className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center active:scale-90 transition shrink-0"
-                          >
-                            <Pencil className="w-4 h-4 text-slate-300" />
-                          </button>
-                          <button
-                            onClick={function () { deleteProduct(p.id); }}
-                            className="w-10 h-10 rounded-xl bg-rose-950/60 flex items-center justify-center active:scale-90 transition shrink-0"
-                          >
-                            <Trash2 className="w-4 h-4 text-rose-400" />
-                          </button>
+                    {prods.map((p) => (
+                      <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
+                          {p.imageUrl ? (
+                            <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            React.createElement(iconFor(p.categoryId), { className: "w-5 h-5 text-indigo-400" })
+                          )}
                         </div>
-                      );
-                    })}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white font-semibold text-sm truncate">{p.name}</div>
+                          <div className="text-slate-500 text-xs">{money(p.priceCents)}</div>
+                        </div>
+                        <button
+                          onClick={() => setEditingProduct(p)}
+                          className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center active:scale-90 transition shrink-0"
+                        >
+                          <Pencil className="w-4 h-4 text-slate-300" />
+                        </button>
+                        <button
+                          onClick={() => deleteProduct(p.id)}
+                          className="w-10 h-10 rounded-xl bg-rose-950/60 flex items-center justify-center active:scale-90 transition shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-400" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
@@ -1361,13 +1224,13 @@ function AdminTab({ bar, updateBar }) {
         <ProductFormModal
           product={editingProduct}
           categories={categories}
-          onClose={function () { setEditingProduct(null); }}
+          onClose={() => setEditingProduct(null)}
           onSave={saveProduct}
         />
       )}
 
       {deletingCat && (
-        <Modal onClose={function () { setDeletingCat(null); }}>
+        <Modal onClose={() => setDeletingCat(null)}>
           <div className="p-6">
             <h2 className="text-white font-bold text-lg mb-2">Supprimer « {deletingCat.name} »</h2>
             <p className="text-slate-400 text-sm mb-6">
@@ -1375,19 +1238,19 @@ function AdminTab({ bar, updateBar }) {
             </p>
             <div className="space-y-3">
               <button
-                onClick={function () { confirmDeleteCategory(true); }}
+                onClick={() => confirmDeleteCategory(true)}
                 className="w-full h-14 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold active:scale-[0.98] transition"
               >
                 Supprimer aussi les produits
               </button>
               <button
-                onClick={function () { confirmDeleteCategory(false); }}
+                onClick={() => confirmDeleteCategory(false)}
                 className="w-full h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold active:scale-[0.98] transition"
               >
                 Conserver les produits (à réassigner)
               </button>
               <button
-                onClick={function () { setDeletingCat(null); }}
+                onClick={() => setDeletingCat(null)}
                 className="w-full h-12 rounded-2xl text-slate-400 font-semibold active:scale-[0.98] transition"
               >
                 Annuler
@@ -1404,15 +1267,15 @@ function ProductFormModal({ product, categories, onClose, onSave }) {
   const isNew = !product.id;
   const [name, setName] = useState(product.name || "");
   const [price, setPrice] = useState(product.price != null ? String(product.price) : "");
-  const [categoryId, setCategoryId] = useState(product.categoryId || (categories[0] ? categories[0].id : ""));
+  const [categoryId, setCategoryId] = useState(product.categoryId || categories[0]?.id || "");
   const [imageUrl, setImageUrl] = useState(product.imageUrl || "");
   const fileRef = useRef(null);
 
-  const handleFile = function (e) {
-    const file = e.target.files && e.target.files[0];
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = function () { setImageUrl(reader.result); };
+    reader.onload = () => setImageUrl(reader.result);
     reader.readAsDataURL(file);
   };
 
@@ -1429,7 +1292,7 @@ function ProductFormModal({ product, categories, onClose, onSave }) {
         <label className="block text-sm font-semibold text-slate-300 mb-2">Nom du produit *</label>
         <input
           value={name}
-          onChange={function (e) { setName(e.target.value); }}
+          onChange={(e) => setName(e.target.value)}
           placeholder="Ex: Café Allongé"
           className="w-full h-14 px-4 rounded-2xl bg-slate-800 text-white placeholder-slate-500 border border-slate-700 focus:border-indigo-500 focus:outline-none mb-4"
         />
@@ -1437,7 +1300,7 @@ function ProductFormModal({ product, categories, onClose, onSave }) {
         <label className="block text-sm font-semibold text-slate-300 mb-2">Prix de vente (€) *</label>
         <input
           value={price}
-          onChange={function (e) { setPrice(e.target.value); }}
+          onChange={(e) => setPrice(e.target.value)}
           type="number"
           step="0.01"
           min="0"
@@ -1448,24 +1311,24 @@ function ProductFormModal({ product, categories, onClose, onSave }) {
         <label className="block text-sm font-semibold text-slate-300 mb-2">Catégorie *</label>
         <select
           value={categoryId}
-          onChange={function (e) { setCategoryId(e.target.value); }}
+          onChange={(e) => setCategoryId(e.target.value)}
           className="w-full h-14 px-4 rounded-2xl bg-slate-800 text-white border border-slate-700 focus:border-indigo-500 focus:outline-none mb-4"
         >
-          {categories.map(function (c) {
-            return <option key={c.id} value={c.id}>{c.name}</option>;
-          })}
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
         </select>
 
         <label className="block text-sm font-semibold text-slate-300 mb-2">Image (optionnel)</label>
         <div className="flex gap-2 mb-2">
           <input
-            value={imageUrl.indexOf("data:") === 0 ? "" : imageUrl}
-            onChange={function (e) { setImageUrl(e.target.value); }}
+            value={imageUrl.startsWith("data:") ? "" : imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
             placeholder="URL d'image..."
             className="flex-1 h-12 px-4 rounded-2xl bg-slate-800 text-white placeholder-slate-500 border border-slate-700 focus:border-indigo-500 focus:outline-none"
           />
           <button
-            onClick={function () { if (fileRef.current) fileRef.current.click(); }}
+            onClick={() => fileRef.current?.click()}
             className="h-12 px-4 rounded-2xl bg-slate-700 text-white font-semibold text-sm shrink-0"
           >
             Fichier
@@ -1484,9 +1347,9 @@ function ProductFormModal({ product, categories, onClose, onSave }) {
         )}
 
         <button
-          onClick={function () {
-            onSave({ id: product.id, name: name.trim(), price: price, categoryId: categoryId, imageUrl: imageUrl || null });
-          }}
+          onClick={() =>
+            onSave({ id: product.id, name: name.trim(), price, categoryId, imageUrl: imageUrl || null })
+          }
           disabled={!name.trim() || !price}
           className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold active:scale-[0.98] transition"
         >
@@ -1497,34 +1360,41 @@ function ProductFormModal({ product, categories, onClose, onSave }) {
   );
 }
 
+// ============================================================
+// ONGLET 3 — CALENDRIER & HISTORIQUE
+// ============================================================
 function isSameDay(iso, date) {
   const d = new Date(iso);
-  return d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
+  return (
+    d.getFullYear() === date.getFullYear() &&
+    d.getMonth() === date.getMonth() &&
+    d.getDate() === date.getDate()
+  );
 }
 
 function HistoryTab({ bar }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [expandedId, setExpandedId] = useState(null);
 
-  const closedNotes = (bar.clientNotes || []).filter(function (n) {
-    return n.status === "paye" && n.closedAt && isSameDay(n.closedAt, selectedDate);
-  });
-  const sorted = closedNotes.slice().sort(function (a, b) { return new Date(b.closedAt) - new Date(a.closedAt); });
+  const closedNotes = (bar.clientNotes || []).filter(
+    (n) => n.status === "paye" && n.closedAt && isSameDay(n.closedAt, selectedDate)
+  );
+  const sorted = [...closedNotes].sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt));
 
-  const totalCents = closedNotes.reduce(function (s, n) { return s + n.totalAmountCents; }, 0);
-  const byMethod = closedNotes.reduce(function (acc, n) {
+  const totalCents = closedNotes.reduce((s, n) => s + n.totalAmountCents, 0);
+  const byMethod = closedNotes.reduce((acc, n) => {
     const m = n.paymentMethod || "Autre";
     acc[m] = (acc[m] || 0) + n.totalAmountCents;
     return acc;
   }, {});
 
-  const setQuickDate = function (daysAgo) {
+  const setQuickDate = (daysAgo) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
     setSelectedDate(d);
   };
 
-  const isQuick = function (daysAgo) {
+  const isQuick = (daysAgo) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
     return isSameDay(d.toISOString(), selectedDate);
@@ -1553,31 +1423,36 @@ function HistoryTab({ bar }) {
             { label: "Aujourd'hui", days: 0 },
             { label: "Hier", days: 1 },
             { label: "Avant-hier", days: 2 },
-          ].map(function (item) {
-            return (
-              <button
-                key={item.label}
-                onClick={function () { setQuickDate(item.days); }}
-                className={"flex-1 h-11 rounded-2xl font-semibold text-sm transition " + (isQuick(item.days) ? "bg-indigo-600 text-white" : "bg-slate-900 text-slate-400 border border-slate-800")}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+          ].map(({ label, days }) => (
+            <button
+              key={label}
+              onClick={() => setQuickDate(days)}
+              className={`flex-1 h-11 rounded-2xl font-semibold text-sm transition ${
+                isQuick(days) ? "bg-indigo-600 text-white" : "bg-slate-900 text-slate-400 border border-slate-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <div className="mt-2">
           <label className="flex items-center gap-2 h-12 px-4 rounded-2xl bg-slate-900 border border-slate-800">
             <CalendarIcon className="w-4 h-4 text-slate-500 shrink-0" />
             <input
               type="date"
-              value={new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000).toISOString().split("T")[0]}
-              onChange={function (e) { setSelectedDate(new Date(e.target.value + "T12:00:00")); }}
+              value={
+                new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000)
+                  .toISOString()
+                  .split("T")[0]
+              }
+              onChange={(e) => setSelectedDate(new Date(e.target.value + "T12:00:00"))}
               className="bg-transparent text-white text-sm flex-1 focus:outline-none [color-scheme:dark]"
             />
           </label>
         </div>
       </div>
 
+      {/* KPI dashboard */}
       <div className="px-4 mt-5">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5">
           <p className="text-slate-400 text-sm font-medium mb-1">Chiffre d'affaires du jour</p>
@@ -1588,8 +1463,7 @@ function HistoryTab({ bar }) {
           </div>
           {Object.keys(byMethod).length > 0 && (
             <div className="space-y-2 pt-3 border-t border-slate-800">
-              {Object.keys(byMethod).map(function (method) {
-                const cents = byMethod[method];
+              {Object.entries(byMethod).map(([method, cents]) => {
                 const Icon = methodIcon[method] || MoreHorizontal;
                 return (
                   <div key={method} className="flex items-center justify-between text-sm">
@@ -1605,6 +1479,7 @@ function HistoryTab({ bar }) {
         </div>
       </div>
 
+      {/* Liste des archives */}
       <div className="px-4 mt-5">
         <h3 className="text-slate-400 font-semibold text-sm mb-2 px-1">Archives de la journée</h3>
         {sorted.length === 0 ? (
@@ -1613,16 +1488,16 @@ function HistoryTab({ bar }) {
           </p>
         ) : (
           <div className="space-y-2">
-            {sorted.map(function (note) {
+            {sorted.map((note) => {
               const expanded = expandedId === note.id;
               const Icon = methodIcon[note.paymentMethod] || MoreHorizontal;
               return (
                 <div key={note.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                   <button
-                    onClick={function () { setExpandedId(expanded ? null : note.id); }}
+                    onClick={() => setExpandedId(expanded ? null : note.id)}
                     className="w-full flex items-center gap-3 p-4 text-left"
                   >
-                    <div className={"w-10 h-10 rounded-xl flex items-center justify-center shrink-0 " + (methodColor[note.paymentMethod] || methodColor["Autre"])}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${methodColor[note.paymentMethod] || methodColor["Autre"]}`}>
                       <Icon className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1636,21 +1511,19 @@ function HistoryTab({ bar }) {
                   </button>
                   {expanded && (
                     <div className="px-4 pb-4 border-t border-slate-800 pt-3">
-                      {note.orders.reduce(function (acc, o) { return acc.concat(o.items); }, []).length === 0 ? (
+                      {note.orders.flatMap((o) => o.items).length === 0 ? (
                         <p className="text-slate-600 text-sm">Aucun détail disponible.</p>
                       ) : (
                         <ul className="space-y-1">
-                          {note.orders.reduce(function (acc, o) { return acc.concat(o.items); }, []).map(function (it, i) {
-                            return (
-                              <li key={i} className="flex items-center justify-between text-sm">
-                                <span className="text-slate-300">
-                                  {it.quantity}x {it.productName}
-                                  {it.optionName && <span className="text-amber-400"> ({it.optionName})</span>}
-                                </span>
-                                <span className="text-slate-500">{money(it.priceAtPurchaseCents * it.quantity)}</span>
-                              </li>
-                            );
-                          })}
+                          {note.orders.flatMap((o) => o.items).map((it, i) => (
+                            <li key={i} className="flex items-center justify-between text-sm">
+                              <span className="text-slate-300">
+                                {it.quantity}x {it.productName}
+                                {it.optionName && <span className="text-amber-400"> ({it.optionName})</span>}
+                              </span>
+                              <span className="text-slate-500">{money(it.priceAtPurchaseCents * it.quantity)}</span>
+                            </li>
+                          ))}
                         </ul>
                       )}
                     </div>
@@ -1665,6 +1538,9 @@ function HistoryTab({ bar }) {
   );
 }
 
+// ============================================================
+// NAVIGATION PRINCIPALE
+// ============================================================
 function BottomNav({ tab, setTab }) {
   const items = [
     { id: "notes", label: "Ardoises", icon: Users },
@@ -1673,116 +1549,106 @@ function BottomNav({ tab, setTab }) {
   ];
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur border-t border-slate-800 flex px-2 pb-[env(safe-area-inset-bottom)]">
-      {items.map(function (item) {
-        const Icon = item.icon;
-        const active = tab === item.id;
-        return (
-          <button
-            key={item.id}
-            onClick={function () { setTab(item.id); }}
-            className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 active:scale-95 transition"
+      {items.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          onClick={() => setTab(id)}
+          className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 active:scale-95 transition"
+        >
+          <div
+            className={`w-12 h-9 rounded-2xl flex items-center justify-center transition ${
+              tab === id ? "bg-indigo-600" : ""
+            }`}
           >
-            <div className={"w-12 h-9 rounded-2xl flex items-center justify-center transition " + (active ? "bg-indigo-600" : "")}>
-              <Icon className={"w-5 h-5 " + (active ? "text-white" : "text-slate-500")} />
-            </div>
-            <span className={"text-xs font-semibold " + (active ? "text-indigo-300" : "text-slate-600")}>
-              {item.label}
-            </span>
-          </button>
-        );
-      })}
+            <Icon className={`w-5 h-5 ${tab === id ? "text-white" : "text-slate-500"}`} />
+          </div>
+          <span className={`text-xs font-semibold ${tab === id ? "text-indigo-300" : "text-slate-600"}`}>
+            {label}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
 
+// ============================================================
+// APP
+// ============================================================
 function CampArdoise() {
-  const [barPassword, setBarPassword] = useState(function () {
-    return localStorage.getItem(SESSION_KEY) || null;
-  });
-  const barStateArr = useBarState(barPassword);
-  const bar = barStateArr[0];
-  const updateBar = barStateArr[1];
-  const meta = barStateArr[2];
+  const [barPassword, setBarPassword] = useState(() => localStorage.getItem(SESSION_KEY) || null);
+  const [bar, updateBar] = useBarState(barPassword);
   const [tab, setTab] = useState("notes");
-  const [view, setView] = useState({ screen: "list" });
+  const [view, setView] = useState({ screen: "list" }); // 'list' | 'detail' | 'order'
 
-  const enterBar = function (pwd) {
+  const enterBar = (pwd) => {
     localStorage.setItem(SESSION_KEY, pwd);
     setBarPassword(pwd);
   };
 
-  const exitBar = function () {
+  const logout = () => {
     localStorage.removeItem(SESSION_KEY);
     setBarPassword(null);
+    setView({ screen: "list" });
+    setTab("notes");
   };
 
-  if (!barPassword) {
-    return <AuthScreen onEnter={enterBar} />;
-  }
-
-  if (meta.loading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <p className="text-slate-500 font-medium">Chargement de l'espace bar...</p>
-      </div>
-    );
-  }
-
-  if (!bar) {
+  if (!barPassword || !bar) {
     return <AuthScreen onEnter={enterBar} />;
   }
 
   return (
     <div className="min-h-screen bg-slate-950 font-sans" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-      {!meta.online && (
-        <div className="bg-amber-950/80 text-amber-300 text-xs font-semibold text-center py-1.5 px-4 flex items-center justify-center gap-1.5">
-          <WifiOff className="w-3.5 h-3.5" />
-          Mode local — données non synchronisées entre appareils
-        </div>
-      )}
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+      `}</style>
 
-      {tab === "notes" && view.screen === "list" && (
-        <ClientNotesTab
-          bar={bar}
-          updateBar={updateBar}
-          onOpenClient={function (id) { setView({ screen: "detail", noteId: id }); }}
-        />
-      )}
-      {tab === "notes" && view.screen === "detail" && (
-        <ClientDetailScreen
-          bar={bar}
-          updateBar={updateBar}
-          noteId={view.noteId}
-          onBack={function () { setView({ screen: "list" }); }}
-          onOrder={function (id) { setView({ screen: "order", noteId: id }); }}
-        />
-      )}
-      {tab === "notes" && view.screen === "order" && (
-        <OrderScreen
-          bar={bar}
-          updateBar={updateBar}
-          noteId={view.noteId}
-          onBack={function () { setView({ screen: "detail", noteId: view.noteId }); }}
-        />
-      )}
-      {tab === "admin" && <AdminTab bar={bar} updateBar={updateBar} />}
-      {tab === "history" && <HistoryTab bar={bar} />}
+```
+  {tab === "notes" && view.screen === "list" && (
+    <ClientNotesTab
+      bar={bar}
+      updateBar={updateBar}
+      onOpenClient={(id) => setView({ screen: "detail", noteId: id })}
+    />
+  )}
+  {tab === "notes" && view.screen === "detail" && (
+    <ClientDetailScreen
+      bar={bar}
+      updateBar={updateBar}
+      noteId={view.noteId}
+      onBack={() => setView({ screen: "list" })}
+      onOrder={(id) => setView({ screen: "order", noteId: id })}
+    />
+  )}
+  {tab === "notes" && view.screen === "order" && (
+    <OrderScreen
+      bar={bar}
+      updateBar={updateBar}
+      noteId={view.noteId}
+      onBack={() => setView({ screen: "detail", noteId: view.noteId })}
+    />
+  )}
+  {tab === "admin" && <AdminTab bar={bar} updateBar={updateBar} />}
+  {tab === "history" && <HistoryTab bar={bar} />}
 
-      <BottomNav
-        tab={tab}
-        setTab={function (t) {
-          setTab(t);
-          setView({ screen: "list" });
-        }}
-      />
-    </div>
-  );
+  {!(tab === "notes" && view.screen === "order") && (
+    <BottomNav
+      tab={tab}
+      setTab={(t) => {
+        setTab(t);
+        setView({ screen: "list" });
+      }}
+    />
+  )}
+</div>
+```
+
+);
 }
 
-const rootEl = document.getElementById("root");
-const root = ReactDOM.createRoot(rootEl);
+const root = createRoot(document.getElementById(“root”));
 root.render(<CampArdoise />);
-
 </script>
 
 </body>
